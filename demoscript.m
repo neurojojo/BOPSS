@@ -2,7 +2,7 @@
 % the negative control data by inputting an array at line 6 below (or add 'neg'
 % to the filename of the negative controls)
 
-results = ResultsClass('C:\ying_12_18\ex556 D2\');
+results = ResultsClass('C:\Temp\BOPSS\shell D2R-GluN2B cocaine sensitization');
 results.analyze % 
 results.makeFigure
 results.saveImages('show') % This will show the locations of puncta in the unoptimized search

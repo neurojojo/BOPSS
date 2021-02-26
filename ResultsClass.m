@@ -194,8 +194,8 @@ classdef ResultsClass < handle
                        mask_locations =  cell2mat( tmp_idx( find(tmp_area>size_threshold) )' );
                        %area_cutoff = sort(tmp_area);
                        
-                       if ~isempty(puncta_locations);   obj.Puncta{i} = accumarray( fliplr(puncta_locations), ones(size(puncta_locations,1), 1) , [100,100] ); else; obj.Puncta{i} = zeros(100,100);    end
-                       if ~isempty(mask_locations);     obj.Cells{i} = accumarray( fliplr(mask_locations), ones(size(mask_locations,1), 1) , [100,100] );         end
+                       if ~isempty(puncta_locations);   obj.Puncta{i} = accumarray( fliplr(puncta_locations), ones(size(puncta_locations,1), 1) , size(obj.Images{1}) ); else; obj.Puncta{i} = zeros(100,100);    end
+                       if ~isempty(mask_locations);     obj.Cells{i} = accumarray( fliplr(mask_locations), ones(size(mask_locations,1), 1) , size(obj.Images{1}) );         end
 
                        obj.CellAreas_forML      = [ obj.CellAreas_forML, tmp_area(find(tmp_area>size_threshold)) ];
                        obj.PunctaAreas_forML    = [ obj.PunctaAreas_forML, tmp_area(find(tmp_area<=size_threshold)) ];
@@ -420,7 +420,17 @@ classdef ResultsClass < handle
                    end
                end
                
-               if isempty(obj.Cells); obj = obj.thresholdImages('color'); obj = obj.countPuncta(); end
+               if ndims( obj.Images{1} ) == 2
+                   fprintf('Your images are BW');
+                   %obj.Images = arrayfun( @(x) sum(x,3)/255
+                   % Detect bit depth
+                   bd = nextpow2(max(arrayfun( @(x) double(max(max(max(x{1},[],3)))), obj.Images, 'UniformOutput', true )));
+                   % Convert images to grayscale
+                   obj.Images = arrayfun( @(x) sum(double(x{1}),3)./2^bd, obj.Images, 'UniformOutput', false )
+                   obj.thresholdImages('bw');
+               end
+               
+               if isempty(obj.Cells); fprintf('Your images are Color'); obj = obj.thresholdImages('color'); obj = obj.countPuncta(); end
                obj.countPuncta();
 
                % Create two matrices containing statistics about the puncta
