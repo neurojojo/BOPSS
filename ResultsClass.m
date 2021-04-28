@@ -172,34 +172,6 @@ classdef ResultsClass < handle
               
               % Check for a BW image %
               if strcmp( varargin{1}, 'bw' );
-                    zscore_threshold = 2;
-                    size_threshold = 100;
-                    zscore2 = @(x) (x-nanmean(nanmean(x(:))) )./ nanstd( nanstd( x ) );
-                    % Use a negative sign for the case where background is white
-                    if obj.handpickedOption
-                        analysisImages = obj.handpickedImages;
-                    else
-                        analysisImages = obj.Images;
-                    end
-                    
-                    masks = arrayfun( @(x) -zscore2(x{1}), analysisImages, 'UniformOutput', false, 'ErrorHandler', @(x,y) nan );
-                    
-                    for i = 1:numel(masks)
-                        
-                       [~,bwb] = bwboundaries( masks{i} > zscore_threshold, 'noholes' );
-                       tmp_area = cell2mat(struct2cell(regionprops(bwb,'Area')));
-                       tmp_idx = struct2cell(regionprops(bwb,'PixelList'));
-                       
-                       puncta_locations = cell2mat( tmp_idx( find(tmp_area<=size_threshold) )' );
-                       mask_locations =  cell2mat( tmp_idx( find(tmp_area>size_threshold) )' );
-                       %area_cutoff = sort(tmp_area);
-                       
-                       if ~isempty(puncta_locations);   obj.Puncta{i} = accumarray( fliplr(puncta_locations), ones(size(puncta_locations,1), 1) , size(obj.Images{1}) ); else; obj.Puncta{i} = zeros(100,100);    end
-                       if ~isempty(mask_locations);     obj.Cells{i} = accumarray( fliplr(mask_locations), ones(size(mask_locations,1), 1) , size(obj.Images{1}) );         end
-
-                       obj.CellAreas_forML      = [ obj.CellAreas_forML, tmp_area(find(tmp_area>size_threshold)) ];
-                       obj.PunctaAreas_forML    = [ obj.PunctaAreas_forML, tmp_area(find(tmp_area<=size_threshold)) ];
-                    end
                     
               end
               
@@ -211,8 +183,6 @@ classdef ResultsClass < handle
            function obj=countPuncta(obj)
                 obj.DetectedPuncta = [];
                
-                if obj.handpickedOption; analysisImages = obj.handpickedImages; else; analysisImages = obj.Images; end;
-                
                 for i = 1:numel(analysisImages);
                     
                     Cells = obj.Cells{i};
@@ -408,7 +378,7 @@ classdef ResultsClass < handle
            
            function count_and_train(obj,varargin)
                
-               if ndims( obj.Images{1} ) == 3
+               if and( ndims( obj.Images{1} ) == 3, isempty( obj.Cells ) )
                    if and( obj.Images{1}(:,:,1) == obj.Images{1}(:,:,2), obj.Images{1}(:,:,2) == obj.Images{1}(:,:,3) )
                        fprintf('Your images are BW');
                        %obj.Images = arrayfun( @(x) sum(x,3)/255
@@ -420,7 +390,7 @@ classdef ResultsClass < handle
                    end
                end
                
-               if ndims( obj.Images{1} ) == 2
+               if and( ndims( obj.Images{1} ) == 2, isempty( obj.Cells ) )
                    fprintf('Your images are BW');
                    %obj.Images = arrayfun( @(x) sum(x,3)/255
                    % Detect bit depth
@@ -430,8 +400,8 @@ classdef ResultsClass < handle
                    obj.thresholdImages('bw');
                end
                
-               if isempty(obj.Cells); fprintf('Your images are Color'); obj = obj.thresholdImages('color'); obj = obj.countPuncta(); end
-               obj.countPuncta();
+               %if isempty(obj.Cells); fprintf('Your images are Color'); obj = obj.thresholdImages('color'); obj = obj.countPuncta(); end
+               if isempty( obj.ResultsTable ); obj.countPuncta(); end;
 
                % Create two matrices containing statistics about the puncta
                analyzerData_color = []; % This matrix contains statistics about the intensity values of puncta
@@ -440,7 +410,7 @@ classdef ResultsClass < handle
                if obj.handpickedOption; analysisImages = obj.handpickedImages; else; analysisImages = obj.Images; end
                
                % Getting information about identified objects
-               for i = 1:obj.Nimages
+               for i = 1 : size(obj.Images,1)
                    
                    if numel(obj.B{i})<2; continue; end; % Don't analyze unless at least two objects in the frame
                    shape_tmp_struct = ((regionprops(obj.L{i},...
@@ -477,7 +447,7 @@ classdef ResultsClass < handle
 
                end
 
-               for i = 1:obj.Nimages
+               for i = 1 : size(obj.Images,1)
                    % We parse out three channels for the data
                    
                    if isempty( pixel_info{i} ); continue; end
@@ -543,8 +513,26 @@ classdef ResultsClass < handle
                    obj.distributionParams.fp_sds    = fp_sds;
 
                    % END LEARNING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+                
                end
+               
+           %%%%%%%%%%%%%%%%%%% TESTING %%%%%%%%%%%%%%%%%%%%%
+           output1 = zeros( size(analyzerData) );
+           output2 = zeros( size(analyzerData) );
+           for i = 1:Nfeatures % Attributes
+               for j = 1:Nrois % Observations
+                   output1(i,j) = normpdf(analyzerData(i,j),tp_means(i),tp_sds(i))./ ...
+                           sum(normpdf(attribute_bins{i},tp_means(i),tp_sds(i)));
+                   output2(i,j) = normpdf(analyzerData(i,j),fp_means(i),fp_sds(i))./ ...
+                           sum(normpdf(attribute_bins{i},fp_means(i),fp_sds(i)));
+               end
+           end
+           
+           output1 = nansum(log(output1),1);
+           output2 = nansum(log(output2),1);
+           decoded = (output1>output2).*analyzerData(1,:);
+           %%%%%%%%%%%%%%%%%%% END TESTING %%%%%%%%%%%%%%%%%%
+           
            % OPTIONAL PLOTTING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
            obj.showDistributions=0;
            if obj.showDistributions; figure;plt_titles = {'id','punctamean','log(punctasd)','punctaentropy','punctarange','convexarea','eccentricity','majoraxislength','minoraxislength','orientation','nnd','numnears'};
@@ -568,6 +556,7 @@ function test_new_images(obj)
            % However, for quantification, only test data is placed into output
            [ tp_means, tp_sds, fp_means, fp_sds ] = deal( obj.distributionParams.tp_means, obj.distributionParams.tp_sds,...
                obj.distributionParams.fp_means, obj.distributionParams.fp_sds );
+           
            
            for i = 1:Nfeatures % Attributes
                for j = 1:Nrois % Observations
@@ -597,13 +586,8 @@ function test_new_images(obj)
            disp(obj.resultsTableForExport);
                    
                    
-           end
+end
            
-           function analyzeData(obj)
-           
-               
-               
-           end
            
            function saveImages(obj,varargin)
                     
